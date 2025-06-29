@@ -1,23 +1,31 @@
-# modules/development/containers.nix
+# modules/development/containers.nix 
 { config, lib, pkgs, username, ... }:
 
+with lib;
+let
+  cfg = config.myconfig.development.docker;
+in
 {
-  virtualisation.docker = {
-    enable = true;
-    enableOnBoot = true;
-
-    # Set up resource limits
-    daemon.settings = {
-      experimental = true;
-      features = {
-        buildkit = true;
-      };
-    };
+  options.myconfig.development.docker = {
+    enable = mkEnableOption "Docker development environment";
   };
 
-  # Virtualization / Containers
-  virtualisation.libvirtd.enable = false;
+  config = mkIf cfg.enable {
+    virtualisation.docker = {
+      enable = true;
+      enableOnBoot = true;
 
-  # Add user to docker group (this is handled in users.nix but we'll make it conditional)
-  # users.users.${username}.extraGroups = [ "docker" ];
+      daemon.settings = {
+        experimental = true;
+        features = {
+          buildkit = true;
+        };
+      };
+    };
+
+    virtualisation.libvirtd.enable = false;
+    
+    # Automatically add user to docker group
+    users.users.${username}.extraGroups = [ "docker" ];
+  };
 }

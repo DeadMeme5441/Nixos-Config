@@ -7,7 +7,7 @@
     xserver = {
       enable = false;
       xkb = {
-        layout = "us";  # We'll make this configurable later
+        layout = config.myconfig.host.keyboardLayout;
         variant = "";
       };
     };
@@ -18,11 +18,11 @@
       settings = {
         default_session = {
           user = username;
-          command = "${pkgs.greetd.tuigreet}/bin/tuigreet --time --cmd Hyprland"; # start Hyprland with a TUI login manager
+          command = "${pkgs.greetd.tuigreet}/bin/tuigreet --time --cmd Hyprland";
         };
       };
-    };
-    
+    };   
+
     smartd = {
       enable = false;
       autodetect = true;
@@ -30,7 +30,6 @@
     
     gvfs.enable = true;
     tumbler.enable = true;
-
     udev.enable = true;
     envfs.enable = true;
     dbus.enable = true;
