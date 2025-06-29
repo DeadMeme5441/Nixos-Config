@@ -39,7 +39,7 @@
 			inherit host;
 			};
 	   		modules = [ 
-				./hosts/${host}/config.nix 
+				./hosts/${host}/default.nix 
 				# inputs.distro-grub-themes.nixosModules.${system}.default
 				];
 			};
