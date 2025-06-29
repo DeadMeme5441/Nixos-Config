@@ -107,11 +107,26 @@ fi
 
 echo "-----"
 
-# Check if template exists
+# Check if template exists, if not create from existing configuration
 if [ ! -d "hosts/template" ]; then
-  echo "$ERROR Template directory not found at hosts/template"
-  echo "$NOTE Please ensure you have the template directory set up"
-  exit 1
+  echo "$NOTE Template directory not found, creating from existing configuration..."
+  if [ -d "hosts/default" ]; then
+    cp -r hosts/default hosts/template
+    # Clean up any hardware-specific files from template
+    rm -f hosts/template/hardware.nix hosts/template/hardware-config.nix 2>/dev/null || true
+  elif [ -d "hosts/deadmeme-pc" ]; then
+    cp -r hosts/deadmeme-pc hosts/template
+    # Clean up any hardware-specific files and user-specific configs from template
+    rm -f hosts/template/hardware.nix hosts/template/hardware-config.nix hosts/template/monitors.nix 2>/dev/null || true
+    # Remove user-specific imports from template
+    sed -i '/monitors\.nix/d' hosts/template/default.nix
+    sed -i '/deadmeme\.nix/d' hosts/template/default.nix
+    sed -i '/deadmeme\.enable = true;/d' hosts/template/default.nix
+  else
+    echo "$ERROR No template or existing configuration found!"
+    echo "$NOTE Please ensure you have a hosts/template directory in your repository."
+    exit 1
+  fi
 fi
 
 # Create directory for the new hostname
@@ -138,8 +153,10 @@ ${HARDWARE_CONFIG}  # Default to false if nothing detected
 }
 EOF
 
-  # Update default.nix to import hardware-config.nix
-  sed -i '/\.\/hardware\.nix/a \    ./hardware-config.nix' hosts/"$hostName"/default.nix
+  # Update default.nix to import hardware-config.nix if not already there
+  if ! grep -q "hardware-config.nix" hosts/"$hostName"/default.nix; then
+    sed -i '/\.\/hardware\.nix/a \    ./hardware-config.nix' hosts/"$hostName"/default.nix
+  fi
   
   git add hosts/"$hostName"
 else
@@ -163,7 +180,9 @@ ${HARDWARE_CONFIG}  # Default to false if nothing detected
 }
 EOF
 
-    sed -i '/\.\/hardware\.nix/a \    ./hardware-config.nix' hosts/default/default.nix
+    if ! grep -q "hardware-config.nix" hosts/default/default.nix; then
+      sed -i '/\.\/hardware\.nix/a \    ./hardware-config.nix' hosts/default/default.nix
+    fi
     git add hosts/default
   fi
 fi
@@ -176,7 +195,12 @@ if [ -z "$keyboardLayout" ]; then
 fi
 
 # Update keyboard layout in the host config
-sed -i "s/keyboardLayout = \"us\";/keyboardLayout = \"$keyboardLayout\";/" hosts/"$hostName"/default.nix
+if grep -q "keyboardLayout = " hosts/"$hostName"/default.nix; then
+  sed -i "s/keyboardLayout = \"[^\"]*\";/keyboardLayout = \"$keyboardLayout\";/" hosts/"$hostName"/default.nix
+else
+  # Add keyboard layout to the host configuration section
+  sed -i "/host = {/a \      keyboardLayout = \"$keyboardLayout\";" hosts/"$hostName"/default.nix
+fi
 
 echo "-----"
 
@@ -222,7 +246,7 @@ in
       ohMyZsh = {
         enable = true;
         plugins = ["git"];
-        theme = "agnoster";
+        theme = "funky";
       };
       autosuggestions.enable = true;
       syntaxHighlighting.enable = true;
@@ -249,8 +273,13 @@ in
 EOF
 
   # Update the host config to import and enable the user
-  sed -i "/modules\/users\/base.nix/a \    ../../modules/users/${installusername}.nix" hosts/"$hostName"/default.nix
-  sed -i "/base.enable = true;/a \      ${installusername}.enable = true;" hosts/"$hostName"/default.nix
+  if ! grep -q "${installusername}.nix" hosts/"$hostName"/default.nix; then
+    sed -i "/modules\/users\/base.nix/a \    ../../modules/users/${installusername}.nix" hosts/"$hostName"/default.nix
+  fi
+  
+  if ! grep -q "${installusername}.enable = true;" hosts/"$hostName"/default.nix; then
+    sed -i "/base.enable = true;/a \      ${installusername}.enable = true;" hosts/"$hostName"/default.nix
+  fi
   
   git add modules/users/"${installusername}".nix
 fi

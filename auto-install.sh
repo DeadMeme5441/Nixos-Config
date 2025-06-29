@@ -1,6 +1,6 @@
+#!/usr/bin/env bash
 # 💫 https://github.com/JaKooLit 💫 #
 
-#!/usr/bin/env bash
 clear
 
 printf "\n%.0s" {1..2}  
@@ -76,20 +76,35 @@ cd ~/NixOS-Hyprland || exit
 
 printf "\n%.0s" {1..2}
 
-# Checking if running on a VM and enable in default config.nix
+# Create a hardware config string for detected settings
+HARDWARE_CONFIG=""
+
+# Checking if running on a VM and enable in hardware config
 if hostnamectl | grep -q 'Chassis: vm'; then
   echo "${NOTE} Your system is running on a VM. Enabling guest services.."
   echo "${WARN} A Kind reminder to enable 3D acceleration.."
-  sed -i '/vm\.guest-services\.enable = false;/s/vm\.guest-services\.enable = false;/ vm.guest-services.enable = true;/' hosts/default/config.nix
+  HARDWARE_CONFIG="${HARDWARE_CONFIG}  vm.guest-services.enable = true;\n"
 fi
 printf "\n%.0s" {1..1}
 
-# Checking if system has nvidia gpu and enable in default config.nix
+# Checking if system has nvidia gpu and enable in hardware config
 if command -v lspci > /dev/null 2>&1; then
-  # lspci is available, proceed with checking for Nvidia GPU
+  # lspci is available, proceed with checking for GPUs
   if lspci -k | grep -A 2 -E "(VGA|3D)" | grep -iq nvidia; then
     echo "${NOTE} Nvidia GPU detected. Setting up for nvidia..."
-    sed -i '/drivers\.nvidia\.enable = false;/s/drivers\.nvidia\.enable = false;/ drivers.nvidia.enable = true;/' hosts/default/config.nix
+    HARDWARE_CONFIG="${HARDWARE_CONFIG}  drivers.nvidia.enable = true;\n"
+  fi
+  
+  # Check for Intel GPU
+  if lspci -k | grep -A 2 -E "(VGA|3D)" | grep -iq intel; then
+    echo "${NOTE} Intel GPU detected. Setting up for intel..."
+    HARDWARE_CONFIG="${HARDWARE_CONFIG}  drivers.intel.enable = true;\n"
+  fi
+  
+  # Check for AMD GPU
+  if lspci -k | grep -A 2 -E "(VGA|3D)" | grep -iq amd; then
+    echo "${NOTE} AMD GPU detected. Setting up for amd..."
+    HARDWARE_CONFIG="${HARDWARE_CONFIG}  drivers.amdgpu.enable = true;\n"
   fi
 fi
 
@@ -100,10 +115,12 @@ printf "\n%.0s" {1..1}
 read -p "${CAT} Do you want to add ${MAGENTA}AGS or aylur's gtk shell v1${RESET} for Desktop Overview Like? (Y/n): " answer
 
 answer=${answer:-Y}
+AGS_ENABLED=true
 
 if [[ "$answer" =~ ^[Nn]$ ]]; then
-    # sed -i 's|^\([[:space:]]*\)ags.url = "github:aylur/ags/v1";|\1#ags.url = "github:aylur/ags/v1";|' flake.nix
-    sed -i 's|^\([[:space:]]*\)ags_1|\1#ags_1|' hosts/default/packages-fonts.nix
+    # Comment out AGS in flake.nix
+    sed -i 's|^\([[:space:]]*\)ags.url = "github:aylur/ags/v1";|\1#ags.url = "github:aylur/ags/v1";|' flake.nix
+    AGS_ENABLED=false
 fi
 
 echo "-----"
@@ -122,13 +139,82 @@ fi
 
 echo "-----"
 
-# Create directory for the new hostname, unless the default is selected
-if [ "$hostName" != "default" ]; then
-  mkdir -p hosts/"$hostName"
-  cp hosts/default/*.nix hosts/"$hostName"
-else
-  echo "Default hostname selected, no extra hosts directory created."
+# Check if template exists, if not create from default/deadmeme-pc
+if [ ! -d "hosts/template" ]; then
+  echo "$NOTE Template directory not found, creating from existing configuration..."
+  if [ -d "hosts/default" ]; then
+    cp -r hosts/default hosts/template
+    # Clean up any hardware-specific files from template
+    rm -f hosts/template/hardware.nix hosts/template/hardware-config.nix 2>/dev/null || true
+  elif [ -d "hosts/deadmeme-pc" ]; then
+    cp -r hosts/deadmeme-pc hosts/template
+    # Clean up any hardware-specific files from template
+    rm -f hosts/template/hardware.nix hosts/template/hardware-config.nix hosts/template/monitors.nix 2>/dev/null || true
+    # Remove user-specific imports from template
+    sed -i '/monitors\.nix/d' hosts/template/default.nix
+    sed -i '/deadmeme\.nix/d' hosts/template/default.nix
+    sed -i '/deadmeme\.enable = true;/d' hosts/template/default.nix
+  else
+    echo "$ERROR No template or existing configuration found!"
+    exit 1
+  fi
 fi
+
+# Create directory for the new hostname
+if [ "$hostName" = "template" ]; then
+  echo "$ERROR Cannot use 'template' as hostname. Please choose a different name."
+  exit 1
+elif [ "$hostName" != "default" ]; then
+  echo "${NOTE} Creating configuration for ${hostName}..."
+  mkdir -p hosts/"$hostName"
+  cp -r hosts/template/* hosts/"$hostName"/ 2>/dev/null || true
+  
+  # Create hardware-config.nix with detected settings
+  cat > hosts/"$hostName"/hardware-config.nix <<EOF
+# Hardware-specific configuration detected by installer
+{ config, lib, ... }:
+
+{
+${HARDWARE_CONFIG}  # Default to false if nothing detected
+  drivers.amdgpu.enable = lib.mkDefault false;
+  drivers.intel.enable = lib.mkDefault false;
+  drivers.nvidia.enable = lib.mkDefault false;
+  vm.guest-services.enable = lib.mkDefault false;
+  local.hardware-clock.enable = lib.mkDefault false;
+}
+EOF
+
+  # Update default.nix to import hardware-config.nix if not already there
+  if ! grep -q "hardware-config.nix" hosts/"$hostName"/default.nix; then
+    sed -i '/\.\/hardware\.nix/a \    ./hardware-config.nix' hosts/"$hostName"/default.nix
+  fi
+else
+  echo "Using default hostname configuration."
+  if [ ! -d "hosts/default" ]; then
+    mkdir -p hosts/default
+    cp -r hosts/template/* hosts/default/ 2>/dev/null || true
+    
+    # Create hardware-config.nix for default
+    cat > hosts/default/hardware-config.nix <<EOF
+# Hardware-specific configuration detected by installer
+{ config, lib, ... }:
+
+{
+${HARDWARE_CONFIG}  # Default to false if nothing detected
+  drivers.amdgpu.enable = lib.mkDefault false;
+  drivers.intel.enable = lib.mkDefault false;
+  drivers.nvidia.enable = lib.mkDefault false;
+  vm.guest-services.enable = lib.mkDefault false;
+  local.hardware-clock.enable = lib.mkDefault false;
+}
+EOF
+
+    if ! grep -q "hardware-config.nix" hosts/default/default.nix; then
+      sed -i '/\.\/hardware\.nix/a \    ./hardware-config.nix' hosts/default/default.nix
+    fi
+  fi
+fi
+
 echo "-----"
 
 read -rp "$CAT Enter your keyboard layout: [ us ] " keyboardLayout
@@ -136,13 +222,99 @@ if [ -z "$keyboardLayout" ]; then
   keyboardLayout="us"
 fi
 
-sed -i 's/keyboardLayout\s*=\s*"\([^"]*\)"/keyboardLayout = "'"$keyboardLayout"'"/' ./hosts/$hostName/variables.nix
+# Update keyboard layout in the host config
+if grep -q "keyboardLayout = " hosts/"$hostName"/default.nix; then
+  sed -i "s/keyboardLayout = \"[^\"]*\";/keyboardLayout = \"$keyboardLayout\";/" hosts/"$hostName"/default.nix
+else
+  # Add keyboard layout to the host configuration section
+  sed -i "/host = {/a \      keyboardLayout = \"$keyboardLayout\";" hosts/"$hostName"/default.nix
+fi
 
 echo "-----"
 
 installusername=$(echo $USER)
 sed -i 's/username\s*=\s*"\([^"]*\)"/username = "'"$installusername"'"/' ./flake.nix
 
+# Create user-specific module if it doesn't exist
+if [ ! -f "modules/users/${installusername}.nix" ]; then
+  echo "${NOTE} Creating user module for ${installusername}..."
+  cat > modules/users/"${installusername}".nix <<EOF
+# User configuration for ${installusername}
+{ config, lib, pkgs, username, ... }:
+
+with lib;
+let
+  cfg = config.myconfig.users.${installusername};
+  gitUsername = config.myconfig.host.gitUsername;
+in
+{
+  options.myconfig.users.${installusername} = {
+    enable = mkEnableOption "Enable ${installusername} user configuration";
+  };
+
+  config = mkIf (cfg.enable && username == "${installusername}") {
+    users.users.\${username} = {
+      homeMode = "755";
+      isNormalUser = true;
+      description = gitUsername;
+      extraGroups = [
+        "networkmanager"
+        "wheel"
+        "video" 
+        "input" 
+        "audio"
+      ];
+      packages = with pkgs; [];
+    };
+    
+    # Add basic zsh configuration for new users
+    programs.zsh = {
+      enable = true;
+      enableCompletion = true;
+      ohMyZsh = {
+        enable = true;
+        plugins = ["git"];
+        theme = "funky";
+      };
+      autosuggestions.enable = true;
+      syntaxHighlighting.enable = true;
+      
+      promptInit = ''
+        fastfetch -c \$HOME/.config/fastfetch/config-compact.jsonc
+        
+        # Set-up icons for files/directories in terminal using lsd
+        alias ls='lsd'
+        alias l='ls -l'
+        alias la='ls -a'
+        alias lla='ls -la'
+        alias lt='ls --tree'
+
+        source <(fzf --zsh);
+        HISTFILE=~/.zsh_history;
+        HISTSIZE=10000;
+        SAVEHIST=10000;
+        setopt appendhistory;
+      '';
+    };
+  };
+}
+EOF
+
+  # Update the host config to import and enable the user
+  if ! grep -q "${installusername}.nix" hosts/"$hostName"/default.nix; then
+    sed -i "/modules\/users\/base.nix/a \    ../../modules/users/${installusername}.nix" hosts/"$hostName"/default.nix
+  fi
+  
+  if ! grep -q "${installusername}.enable = true;" hosts/"$hostName"/default.nix; then
+    sed -i "/base.enable = true;/a \      ${installusername}.enable = true;" hosts/"$hostName"/default.nix
+  fi
+fi
+
+# Handle AGS in the host configuration
+if [ "$AGS_ENABLED" = false ]; then
+  # Comment out AGS import in desktop modules
+  sed -i 's|inputs.ags.packages.${pkgs.system}.default|#inputs.ags.packages.${pkgs.system}.default|' modules/desktop/hyprland.nix
+fi
 
 echo "$NOTE Generating The Hardware Configuration"
 attempts=0
