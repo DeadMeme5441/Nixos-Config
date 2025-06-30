@@ -5,10 +5,10 @@
   imports = [
     ./python.nix
     ./javascript.nix
+    ./rust.nix
+    ./go.nix
     # Add other language modules here as you create them:
-    # ./rust.nix
     # ./java.nix
     # ./haskell.nix
-    # ./go.nix
   ];
 }
