@@ -36,7 +36,7 @@
     # Development
     ../../modules/development/containers.nix
     ../../modules/development/tools.nix
-    ../../modules/development/languages.nix
+    ../../modules/development/languages
     ../../modules/development/editors.nix
 
     # Applications
